@@ -25,7 +25,7 @@ import libflagship.seccode
 
 from libflagship.util import enhex
 from libflagship.mqtt import MqttMsgType
-from libflagship.pppp import PktLanSearch, P2PCmdType, P2PSubCmdType, FileTransfer
+from libflagship.pppp import P2PCmdType, P2PSubCmdType, FileTransfer
 from libflagship.ppppapi import FileUploadInfo, PPPPError
 
 
@@ -217,22 +217,25 @@ def pppp(): pass
 
 
 @pppp.command("lan-search")
+@click.option("--store", "-s", is_flag=True, help="Store found IP address(es) in configuration file")
 @pass_env
-def pppp_lan_search(env):
+def pppp_lan_search(env, store):
     """
     Attempt to find available printers on local LAN.
 
     Works by broadcasting a LAN_SEARCH packet, and waiting for a reply.
     """
-    api = cli.pppp.pppp_open_broadcast(dumpfile=env.pppp_dump)
-    try:
-        api.send(PktLanSearch())
-        resp = api.recv(timeout=1.0)
-    except TimeoutError:
-        log.error("No printers responded within timeout. Are you connected to the same network as the printer?")
+    found_printers = cli.pppp.pppp_find_printer_ip_addresses(dumpfile=env.pppp_dump)
+    if found_printers:
+        for duid, ip in found_printers.items():
+            log.info(f"Printer [{duid}] is online at {ip}")
     else:
-        if isinstance(resp, libflagship.pppp.PktPunchPkt):
-            log.info(f"Printer [{str(resp.duid)}] is online at {str(api.addr[0])}")
+        log.error("No printers responded within timeout. Are you connected to the same network as the printer?")
+
+    # if requested, update stored printer IP addresses
+    if store and found_printers:
+        log.info(f"Checking configured printer IP addresses:")
+        cli.config.update_printer_ip_addresses(env.config, found_printers)
 
 
 @pppp.command("print-file")
