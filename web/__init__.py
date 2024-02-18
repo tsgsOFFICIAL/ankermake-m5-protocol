@@ -162,8 +162,11 @@ def app_root():
         if cfg:
             anker_config = str(web.config.config_show(cfg))
             config_existing_email = cfg.account.email
-            printer = cfg.printers[app.config["printer_index"]]
             country = cfg.account.country
+            printer = cfg.printers[app.config["printer_index"]]
+            if not printer.ip_addr:
+                flash("Printer IP address is not set yet, please complete the setup...",
+                      "warning")
         else:
             anker_config = "No printers found, please load your login config..."
             config_existing_email = ""
