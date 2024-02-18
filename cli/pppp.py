@@ -65,7 +65,14 @@ def _pppp_get_interface_ip_addresses():
 
 
 def _pppp_query_printers(bind_addr=None, dumpfile=None):
-    api = pppp_open_broadcast(bind_addr=bind_addr, dumpfile=dumpfile)
+    try:
+        api = pppp_open_broadcast(bind_addr=bind_addr, dumpfile=dumpfile)
+    except OSError:
+        if bind_addr is not None:
+            # accept binding errors and skip this address
+            return
+        raise
+
     api.send(PktLanSearch())
 
     # collect replies from all available printers within 1.0 second
