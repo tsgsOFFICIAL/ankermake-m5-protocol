@@ -8,6 +8,19 @@ The `ankerctl` program uses [`libflagship`](documentation/developer-docs/libflag
 
 ![Screenshot of ankerctl](/documentation/web-interface.png "Screenshot of ankerctl web interface")
 
+## Table of Contents
+
+-   [Introduction](#introduction)
+-   [Features](#features)
+-   [Installation](#installation)
+-   [Importing Configuration](#importing-configuration)
+-   [Usage](#usage)
+    -   [Web Interface](#web-interface)
+    -   [Printing Directly from PrusaSlicer](#printing-directly-from-prusaslicer)
+    -   [Command-line Tools](#command-line-tools)
+-   [Common Issues](#common-issues)
+-   [Legal](#legal)
+
 ## Features
 
 ### Current Features
@@ -207,6 +220,12 @@ Some examples:
 # select printer to use when you have multiple
 ./ankerctl.py -p <index> # index starts at 0 and goes up to the number of printers you have
 ```
+
+## Common Issues
+
+1. "Trying connect to printer {Printer Name} (...) over pppp using ip {Printer IP}"
+
+The solution for now is to add an inbound firewall rule, to allow all UDP connections.
 
 ## Legal
 
