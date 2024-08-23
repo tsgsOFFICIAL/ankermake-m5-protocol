@@ -12,7 +12,9 @@ $(function () {
     popupModalDom.addEventListener("shown.bs.modal", function (e) {
         const trigger = e.relatedTarget;
         const modalInner = $("#modal-inner");
+
         modalInner.text(trigger.dataset.msg);
+
         if (trigger.dataset.href) {
             window.location.href = trigger.dataset.href;
         }
@@ -23,10 +25,11 @@ $(function () {
      */
     if (navigator.clipboard) {
         /* Clipboard support present: link clipboard icons to source object */
-        $("[data-clipboard-src]").each(function(i, elm) {
+        $("[data-clipboard-src]").each(function (i, elm) {
             $(elm).on("click", function () {
                 const src = $(elm).attr("data-clipboard-src");
                 const value = $(src).text();
+
                 navigator.clipboard.writeText(value);
                 console.log(`Copied ${value} to clipboard`);
             });
@@ -95,9 +98,10 @@ $(function () {
     /**
      * Updates the country code <select> element
      */
-    (function(selectElement) {
+    (function (selectElement) {
         var countryCodes = selectElement.data("countrycodes");
         var currentCountry = selectElement.data("country");
+
         countryCodes.forEach((item) => {
             var selected = (currentCountry == item.c) ? " selected" : "";
             $(`<option value="${item.c}"${selected}>${item.n}</option>`).appendTo(selectElement);
@@ -110,7 +114,7 @@ $(function () {
     $("#captchaRow").hide();
     $("#loginCaptchaId").val("");
 
-    $("#config-login-form").on("submit", function(e) {
+    $("#config-login-form").on("submit", function (e) {
         e.preventDefault();
 
         (async () => {
@@ -118,6 +122,7 @@ $(function () {
             const url = form.attr("action");
 
             const form_data = new URLSearchParams();
+
             for (const pair of new FormData(form.get(0))) {
                 form_data.append(pair[0], pair[1]);
             }
@@ -130,25 +135,25 @@ $(function () {
             if (resp.status < 300) {
                 const data = await resp.json();
                 const input = $("#loginCaptchaText");
+
                 if ("redirect" in data) {
                     document.location = data["redirect"];
-                }
-                else if ("error" in data) {
+                } else if ("error" in data) {
                     flash_message(data["error"], "danger");
+
                     input.get(0).focus();
-                }
-                else if ("captcha_id" in data) {
+                } else if ("captcha_id" in data) {
                     input.val("");
                     input.attr("aria-required", "true");
                     input.prop("required");
                     input.get(0).focus();
+
                     $("#loginCaptchaId").val(data["captcha_id"]);
                     $("#loginCaptchaImg").attr("src", data["captcha_url"]);
                     $("#captchaRow").show();
                 }
-            }
-            else {
-                flash_message(`HTTP Error ${resp.status}: ${resp.statusText}`, "danger")
+            } else {
+                flash_message(`HTTP Error ${resp.status}: ${resp.statusText}`, "danger");
             }
         })();
     });
@@ -156,10 +161,10 @@ $(function () {
     function flash_message(message, category) {
         // copy from base.html
         $(`<div class="alert alert-${category} alert-dismissible fade show" data-timeout="7500" role="alert">` +
-          '<button type="button" class="btn-close btn-sm btn-close-white" data-bs-dismiss="alert" aria-label="Close">' +
-          '</button>' +
-          message +
-          '</div>').appendTo($("#messages").empty());
+            '<button type="button" class="btn-close btn-sm btn-close-white" data-bs-dismiss="alert" aria-label="Close">' +
+            '</button>' +
+            message +
+            '</div>').appendTo($("#messages").empty());
         // does not auto-close yet...
     }
 
@@ -173,13 +178,13 @@ $(function () {
         constructor({
             name,
             url,
-            badge=null,
-            open=null,
-            close=null,
-            error=null,
-            message=null,
-            binary=false,
-            reconnect=1000,
+            badge = null,
+            open = null,
+            close = null,
+            error = null,
+            message = null,
+            binary = false,
+            reconnect = 1000,
         }) {
             this.name = name;
             this.url = url;
@@ -195,6 +200,7 @@ $(function () {
 
         _open() {
             $(this.badge).removeClass("text-bg-success text-bg-danger").addClass("text-bg-warning");
+
             if (this.open)
                 this.open(this.ws);
         }
@@ -203,6 +209,7 @@ $(function () {
             $(this.badge).removeClass("text-bg-warning text-bg-success").addClass("text-bg-danger");
             console.log(`${this.name} close`);
             setTimeout(() => this.connect(), this.reconnect);
+
             if (this.close)
                 this.close(this.ws);
         }
@@ -210,20 +217,24 @@ $(function () {
         _error() {
             console.log(`${this.name} error`);
             this.ws.close();
+
             if (this.error)
                 this.error(this.ws);
         }
 
         _message(event) {
             $(this.badge).removeClass("text-bg-danger text-bg-warning").addClass("text-bg-success");
+
             if (this.message)
                 this.message(event);
         }
 
         connect() {
             var ws = this.ws = new WebSocket(this.url);
+
             if (this.binary)
                 ws.binaryType = "arraybuffer";
+
             ws.addEventListener("open", this._open.bind(this));
             ws.addEventListener("close", this._close.bind(this));
             ws.addEventListener("error", this._error.bind(this));
@@ -248,7 +259,9 @@ $(function () {
                 $("#print-name").text(data.name);
                 $("#time-elapsed").text(getTime(data.totalTime));
                 $("#time-remain").text(getTime(data.time));
+
                 const progress = getPercentage(data.progress);
+
                 $("#progressbar").attr("aria-valuenow", progress);
                 $("#progressbar").attr("style", `width: ${progress}%`);
                 $("#progress").text(`${progress}%`);
@@ -256,21 +269,25 @@ $(function () {
                 // Returns Nozzle Temp
                 const current = getTemp(data.currentTemp);
                 const target = getTemp(data.targetTemp);
+
                 $("#nozzle-temp").text(`${current}°C`);
                 $("#set-nozzle-temp").attr("value", `${target}°C`);
             } else if (data.commandType == 1004) {
                 // Returns Bed Temp
                 const current = getTemp(data.currentTemp);
                 const target = getTemp(data.targetTemp);
+
                 $("#bed-temp").text(`${current}°C`);
                 $("#set-bed-temp").attr("value", `${target}°C`);
             } else if (data.commandType == 1006) {
                 // Returns Print Speed
                 const X = getSpeedFactor(data.value);
+
                 $("#print-speed").text(`${data.value}mm/s ${X}`);
             } else if (data.commandType == 1052) {
                 // Returns Layer Info
                 const layer = `${data.real_print_layer} / ${data.total_layer}`;
+
                 $("#print-layer").text(layer);
             } else {
                 console.log("Unhandled mqtt message:", data);
@@ -353,12 +370,15 @@ $(function () {
     if ($("#badge-mqtt").length) {
         sockets.mqtt.connect();
     }
+
     if ($("#badge-ctrl").length) {
         sockets.ctrl.connect();
     }
+
     if ($("#badge-pppp").length) {
         sockets.pppp_state.connect();
     }
+
     if ($("#player").length) {
         sockets.video.connect();
     }
@@ -368,6 +388,7 @@ $(function () {
      */
     $("#light-on").on("click", function () {
         sockets.ctrl.ws.send(JSON.stringify({ light: true }));
+
         return false;
     });
 
@@ -376,6 +397,7 @@ $(function () {
      */
     $("#light-off").on("click", function () {
         sockets.ctrl.ws.send(JSON.stringify({ light: false }));
+
         return false;
     });
 
@@ -384,6 +406,7 @@ $(function () {
      */
     $("#quality-low").on("click", function () {
         sockets.ctrl.ws.send(JSON.stringify({ quality: 0 }));
+
         return false;
     });
 
@@ -392,6 +415,7 @@ $(function () {
      */
     $("#quality-high").on("click", function () {
         sockets.ctrl.ws.send(JSON.stringify({ quality: 1 }));
+
         return false;
     });
 
