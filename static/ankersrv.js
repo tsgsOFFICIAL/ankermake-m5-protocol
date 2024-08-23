@@ -3,6 +3,8 @@ $(function () {
      * Updates the Copywrite year on document ready
      */
     $("#copyYear").text(new Date().getFullYear());
+    let cancellationRequested = false;
+    let printTimeLeftInSeconds = 0;
 
     /**
      * Handle modal being shown
@@ -169,6 +171,43 @@ $(function () {
     }
 
     /**
+     * Updates the time every second
+     */
+    function startUpdateTimeInterval(timeElapsedInSeconds, timeLeftInSeconds) {
+        cancellationRequested = false;
+        printTimeLeftInSeconds = timeLeftInSeconds;
+
+        const updateInterval = setInterval(() => {
+            if (printTimeLeftInSeconds <= 0 || cancellationRequested) {
+                clearInterval(updateInterval);
+                resetPrintInfo();
+                return;
+            }
+
+            timeElapsedInSeconds++;
+            printTimeLeftInSeconds--;
+
+            $("#time-remain").text(getTime(printTimeLeftInSeconds));
+            $("#time-elapsed").text(getTime(timeElapsedInSeconds));
+        }, 1 * 1000);
+    }
+
+    function updateTimeLeft(timeLeftInSeconds) {
+        printTimeLeftInSeconds = timeLeftInSeconds;
+    }
+
+    function resetPrintInfo() {
+        $("#time-remain").text("00:00:00");
+        $("#time-elapsed").text("00:00:00");
+        $("#print-name").text("");
+        $("#progressbar").attr("aria-valuenow", 0);
+        $("#progressbar").attr("style", `width: 0%`);
+        $("#progress").text(`0%`);
+        $("#print-speed").text("0mm/s");
+        $("#print-layer").text("0/0");
+    }
+
+    /**
      * AutoWebSocket class
      *
      * This class wraps a WebSocket, and makes it automatically reconnect if the
@@ -257,8 +296,17 @@ $(function () {
             if (data.commandType == 1001) {
                 // Returns Print Details
                 $("#print-name").text(data.name);
-                $("#time-elapsed").text(getTime(data.totalTime));
-                $("#time-remain").text(getTime(data.time));
+
+                // Before print starts
+                if ($("#time-remain").text().trim() === "00:00:00" && data.totalTime === 0) {
+                    $("#time-remain").text(getTime(data.time));
+                }
+
+                if ($("#time-remain").text().trim() === "00:00:00" && data.totalTime !== 0) {
+                    startUpdateTimeInterval(data.totalTime, data.time);
+                } else {
+                    updateTimeLeft(data.time);
+                }
 
                 const progress = getPercentage(data.progress);
 
@@ -270,6 +318,11 @@ $(function () {
                 const current = getTemp(data.currentTemp);
                 const target = getTemp(data.targetTemp);
                 const previousValue = $("#set-nozzle-temp").attr("value").replace("°C", "");
+
+                if (!isNaN(target) && target === 0) {
+                    resetPrintInfo();
+                    cancellationRequested = true;
+                }
 
                 $("#nozzle-temp").text(`${current}°C`);
                 $("#set-nozzle-temp").attr("value", `${isNaN(target) ? previousValue : target}°C`);
@@ -309,6 +362,7 @@ $(function () {
             $("#set-bed-temp").attr("value", "0°C");
             $("#print-speed").text("0mm/s");
             $("#print-layer").text("0 / 0");
+            cancellationRequested = true;
         },
     });
 
@@ -420,5 +474,4 @@ $(function () {
 
         return false;
     });
-
 });
