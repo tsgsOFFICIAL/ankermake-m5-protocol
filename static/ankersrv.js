@@ -5,12 +5,17 @@ $(function () {
     $("#copyYear").text(new Date().getFullYear());
 
     /**
-     * Redirect page when modal dialog is shown
+     * Handle modal being shown
      */
-    var popupModal = document.getElementById("popupModal");
+    var popupModalDom = document.getElementById("popupModal");
 
-    popupModal.addEventListener("shown.bs.modal", function (e) {
-        window.location.href = $("#reload").data("href");
+    popupModalDom.addEventListener("shown.bs.modal", function (e) {
+        const trigger = e.relatedTarget;
+        const modalInner = $("#modal-inner");
+        modalInner.text(trigger.dataset.msg);
+        if (trigger.dataset.href) {
+            window.location.href = trigger.dataset.href;
+        }
     });
 
     /**
@@ -85,6 +90,77 @@ $(function () {
      */
     function getSpeedFactor(speed) {
         return `X${speed / 50}`;
+    }
+
+    /**
+     * Updates the country code <select> element
+     */
+    (function(selectElement) {
+        var countryCodes = selectElement.data("countrycodes");
+        var currentCountry = selectElement.data("country");
+        countryCodes.forEach((item) => {
+            var selected = (currentCountry == item.c) ? " selected" : "";
+            $(`<option value="${item.c}"${selected}>${item.n}</option>`).appendTo(selectElement);
+        });
+    })($("#loginCountry"));
+
+    /**
+     * Login data submission and CAPTCHA handling
+     */
+    $("#captchaRow").hide();
+    $("#loginCaptchaId").val("");
+
+    $("#config-login-form").on("submit", function(e) {
+        e.preventDefault();
+
+        (async () => {
+            const form = $("#config-login-form");
+            const url = form.attr("action");
+
+            const form_data = new URLSearchParams();
+            for (const pair of new FormData(form.get(0))) {
+                form_data.append(pair[0], pair[1]);
+            }
+
+            const resp = await fetch(url, {
+                method: 'POST',
+                body: form_data
+            });
+
+            if (resp.status < 300) {
+                const data = await resp.json();
+                const input = $("#loginCaptchaText");
+                if ("redirect" in data) {
+                    document.location = data["redirect"];
+                }
+                else if ("error" in data) {
+                    flash_message(data["error"], "danger");
+                    input.get(0).focus();
+                }
+                else if ("captcha_id" in data) {
+                    input.val("");
+                    input.attr("aria-required", "true");
+                    input.prop("required");
+                    input.get(0).focus();
+                    $("#loginCaptchaId").val(data["captcha_id"]);
+                    $("#loginCaptchaImg").attr("src", data["captcha_url"]);
+                    $("#captchaRow").show();
+                }
+            }
+            else {
+                flash_message(`HTTP Error ${resp.status}: ${resp.statusText}`, "danger")
+            }
+        })();
+    });
+
+    function flash_message(message, category) {
+        // copy from base.html
+        $(`<div class="alert alert-${category} alert-dismissible fade show" data-timeout="7500" role="alert">` +
+          '<button type="button" class="btn-close btn-sm btn-close-white" data-bs-dismiss="alert" aria-label="Close">' +
+          '</button>' +
+          message +
+          '</div>').appendTo($("#messages").empty());
+        // does not auto-close yet...
     }
 
     /**
@@ -210,7 +286,7 @@ $(function () {
             $("#progress").text("0%");
             $("#nozzle-temp").text("0°C");
             $("#set-nozzle-temp").attr("value", "0°C");
-            $("#bed-temp").text("$0°C");
+            $("#bed-temp").text("0°C");
             $("#set-bed-temp").attr("value", "0°C");
             $("#print-speed").text("0mm/s");
             $("#print-layer").text("0 / 0");
@@ -223,7 +299,7 @@ $(function () {
     sockets.video = new AutoWebSocket({
         name: "Video socket",
         url: `ws://${location.host}/ws/video`,
-        badge: "#badge-pppp",
+        badge: "#badge-video",
         binary: true,
 
         open: function () {
@@ -265,13 +341,26 @@ $(function () {
         badge: "#badge-ctrl",
     });
 
+    sockets.pppp_state = new AutoWebSocket({
+        name: "PPPP socket",
+        url: `ws://${location.host}/ws/pppp-state`,
+        badge: "#badge-pppp",
+    });
+
     /* Only connect websockets if #player element exists in DOM (i.e., if we
      * have a configuration). Otherwise we are constantly trying to make
      * connections that will never succeed. */
-    if ($("#player").length) {
+    if ($("#badge-mqtt").length) {
         sockets.mqtt.connect();
-        sockets.video.connect();
+    }
+    if ($("#badge-ctrl").length) {
         sockets.ctrl.connect();
+    }
+    if ($("#badge-pppp").length) {
+        sockets.pppp_state.connect();
+    }
+    if ($("#player").length) {
+        sockets.video.connect();
     }
 
     /**

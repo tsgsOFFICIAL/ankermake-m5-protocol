@@ -8,6 +8,7 @@ Methods:
 
 Routes:
     - /ws/mqtt: Handles receiving and sending messages on the 'mqttqueue' stream service through websocket
+    - /ws/pppp-state: Provides the status of the 'pppp' stream service through websocket
     - /ws/video: Handles receiving and sending messages on the 'videoqueue' stream service through websocket
     - /ws/ctrl: Handles controlling of light and video quality through websocket
     - /video: Handles the video streaming/downloading feature in the Flask app
@@ -29,7 +30,7 @@ import json
 import logging as log
 
 from secrets import token_urlsafe as token
-from flask import Flask, flash, request, render_template, Response, session, url_for
+from flask import Flask, flash, request, render_template, Response, session, url_for, jsonify
 from flask_sock import Sock
 from user_agents import parse as user_agent_parse
 
@@ -43,6 +44,7 @@ import web.util
 
 import cli.util
 import cli.config
+import cli.countrycodes
 
 
 app = Flask(__name__, root_path=ROOT_DIR, static_folder="static", template_folder="static")
@@ -79,10 +81,35 @@ def video(sock):
     """
     Handles receiving and sending messages on the 'videoqueue' stream service through websocket
     """
-    if not app.config["login"]:
+    if not app.config["login"] or not app.config["video_supported"]:
         return
     for msg in app.svc.stream("videoqueue"):
         sock.send(msg.data)
+
+
+@sock.route("/ws/pppp-state")
+def pppp_state(sock):
+    """
+    Handles a status request for the 'pppp' stream service through websocket
+    """
+    if not app.config["login"]:
+        return
+
+    pppp_connected = False
+
+    # A timeout of 3 sec should be finr, as the printer continuously sends
+    # PktAlive messages every second on an established connnection.
+    for chan, msg in app.svc.stream("pppp", timeout=3.0):
+        if not pppp_connected:
+            with app.svc.borrow("pppp") as pppp:
+                if pppp.connected:
+                    pppp_connected = True
+                    # this is the only message ever sent on this connection
+                    # to signal that the pppp connection is up
+                    sock.send(json.dumps({"status": "connected"}))
+                    log.info(f"PPPP connection established")
+
+    log.warning(f"PPPP connection lost")
 
 
 @sock.route("/ws/ctrl")
@@ -114,7 +141,7 @@ def video_download():
     Handles the video streaming/downloading feature in the Flask app
     """
     def generate():
-        if not app.config["login"]:
+        if not app.config["login"] or not app.config["video_supported"]:
             return
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
@@ -134,10 +161,17 @@ def app_root():
 
         if cfg:
             anker_config = str(web.config.config_show(cfg))
+            config_existing_email = cfg.account.email
+            country = cfg.account.country
             printer = cfg.printers[app.config["printer_index"]]
+            if not printer.ip_addr:
+                flash("Printer IP address is not set yet, please complete the setup...",
+                      "warning")
         else:
             anker_config = "No printers found, please load your login config..."
+            config_existing_email = ""
             printer = None
+            country = ""
 
         if ":" in request.host:
             request_host, request_port = request.host.split(":", 1)
@@ -152,6 +186,10 @@ def app_root():
             configure=app.config["login"],
             login_file_path=web.platform.login_path(user_os),
             anker_config=anker_config,
+            video_supported=app.config["video_supported"],
+            config_existing_email=config_existing_email,
+            country_codes=json.dumps(cli.countrycodes.country_codes),
+            current_country=country,
             printer=printer
         )
 
@@ -165,6 +203,48 @@ def app_api_version():
         A dictionary containing version details of api and server
     """
     return {"api": "0.1", "server": "1.9.0", "text": "OctoPrint 1.9.0"}
+
+
+@app.post("/api/ankerctl/config/updateip")
+def app_api_ankerctl_config_update_ip_addresses():
+    """
+    Handles the uploading of configuration file to Flask server
+
+    Returns:
+        A HTML redirect response
+    """
+    if request.method != "POST":
+        return web.util.flash_redirect(url_for('app_root'),
+                                       f"Wrong request method {request.method}", "danger")
+
+    message = None
+    category = "info"
+    url = url_for("app_root")
+    config = app.config["config"]
+    found_printers = dict(list(cli.pppp.pppp_find_printer_ip_addresses()))
+
+    if found_printers:
+        # update printer IP addresses
+        log.debug(f"Checking configured printer IP addresses:")
+        updated_printers = cli.config.update_printer_ip_addresses(config, found_printers)
+
+        # determine the message to display to the user
+        if updated_printers is not None:
+            if updated_printers:
+                category = "success"
+                message = f"Successfully update IP addresses of printer(s) {', '.join(updated_printers)}"
+                url = url_for("app_api_ankerctl_server_internal_reload")
+            else:
+                message = f"No IP addresses were updated."
+        else:
+            category = "danger"
+            message = f"Internal error."
+    else:
+        category = "danger"
+        message = "No printers responded within timeout. " \
+                  "Are you connected to the same network as the printer?"
+
+    return web.util.flash_redirect(url, message, category)
 
 
 @app.post("/api/ankerctl/config/upload")
@@ -183,7 +263,7 @@ def app_api_ankerctl_config_upload():
 
     try:
         web.config.config_import(file, app.config["config"])
-        return web.util.flash_redirect(url_for('app_api_ankerctl_server_reload'),
+        return web.util.flash_redirect(url_for('app_api_ankerctl_server_internal_reload'),
                                        "AnkerMake Config Imported!", "success")
     except web.config.ConfigImportError as err:
         log.exception(f"Config import failed: {err}")
@@ -191,6 +271,45 @@ def app_api_ankerctl_config_upload():
     except Exception as err:
         log.exception(f"Config import failed: {err}")
         return web.util.flash_redirect(url_for('app_root'), f"Unexpected Error occurred: {err}", "danger")
+
+
+@app.post("/api/ankerctl/config/login")
+def app_api_ankerctl_config_login():
+    if request.method != "POST":
+        flash(f"Invalid request method '{request.method}", "danger")
+        return jsonify({"redirect": url_for('app_root')})
+
+    # get form data
+    form_data = request.form.to_dict()
+
+    for key in ["login_email", "login_password", "login_country"]:
+        if key not in form_data:
+            return jsonify({"error": "Error: Missing form entry '{key}'"})
+
+    if not cli.countrycodes.code_to_country(form_data["login_country"]):
+        return jsonify({"error": f"Error: Invalid country code '{form_data['login_country']}'"})
+
+    try:
+        web.config.config_login(form_data['login_email'], form_data['login_password'],
+                                form_data['login_country'],
+                                form_data['login_captcha_id'], form_data['login_captcha_text'],
+                                app.config["config"])
+        flash("AnkerMake Config Imported!", "success")
+        return jsonify({"redirect": url_for('app_api_ankerctl_server_reload')})
+    except web.config.ConfigImportError as err:
+        if err.captcha:
+            # we have to solve a capture, display it
+            return jsonify({"captcha_id": err.captcha["id"],
+                            "captcha_url": err.captcha["img"]})
+        # unknown import error
+        log.exception(f"Config import failed: {err}")
+        flash(f"Error: {err}", "danger")
+        return jsonify({"redirect": url_for('app_root')})
+    except Exception as err:
+        # unknown error
+        log.exception(f"Config import failed: {err}")
+        flash(f"Unexpected error occurred: {err}", "danger")
+        return jsonify({"redirect": url_for('app_root')})
 
 
 @app.get("/api/ankerctl/server/reload")
@@ -201,22 +320,43 @@ def app_api_ankerctl_server_reload():
     Returns:
         A HTML redirect response
     """
+    # clear any pending flash messages
+    if "_flashes" in session:
+        session["_flashes"].clear()
+
+    config = app.config["config"]
+
+    with config.open() as cfg:
+        if not cfg:
+            return web.util.flash_redirect(url_for('app_root'), "No printers found in config", "warning")
+
+    return app_api_ankerctl_server_internal_reload("Ankerctl reloaded successfully")
+
+
+@app.get("/api/ankerctl/server/intreload")
+def app_api_ankerctl_server_internal_reload(success_message: str=None):
+    """
+    Internal variant for reloading the Flask server.
+
+    This version shall be used as the forwarding target of actions displaying
+    flash messages. The current function will not clear and overwrite such
+    messages.
+
+    Returns:
+        A HTML redirect response
+    """
     config = app.config["config"]
 
     with config.open() as cfg:
         app.config["login"] = bool(cfg)
-        if not cfg:
-            return web.util.flash_redirect(url_for('app_root'), "No printers found in config", "warning")
-        if "_flashes" in session:
-            session["_flashes"].clear()
 
-        try:
-            app.svc.restart_all(await_ready=False)
-        except Exception as err:
-            log.exception(err)
-            return web.util.flash_redirect(url_for('app_root'), f"Ankerctl could not be reloaded: {err}", "danger")
+    try:
+        app.svc.restart_all(await_ready=False)
+    except Exception as err:
+        log.exception(err)
+        return web.util.flash_redirect(url_for('app_root'), f"Ankerctl could not be reloaded: {err}", "danger")
 
-        return web.util.flash_redirect(url_for('app_root'), "Ankerctl reloaded successfully", "success")
+    return web.util.flash_redirect(url_for('app_root'), success_message, "success")
 
 
 @app.post("/api/files/local")
@@ -269,17 +409,24 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
         - None
     """
     with config.open() as cfg:
-        if cfg and printer_index >= len(cfg.printers):
+        video_supported = False
+        if cfg:
+            if printer_index < len(cfg.printers):
+                # no webcam in the AnkerMake M5C (Model "V8110")
+                video_supported = cfg.printers[printer_index].model != "V8110"
+        else:
             log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
         app.config["config"] = config
         app.config["login"] = bool(cfg)
         app.config["printer_index"] = printer_index
+        app.config["video_supported"] = video_supported
         app.config["port"] = port
         app.config["host"] = host
         app.config["insecure"] = insecure
         app.config.update(kwargs)
         app.svc.register("pppp", web.service.pppp.PPPPService())
-        app.svc.register("videoqueue", web.service.video.VideoQueue())
+        if video_supported:
+            app.svc.register("videoqueue", web.service.video.VideoQueue())
         app.svc.register("mqttqueue", web.service.mqtt.MqttQueue())
         app.svc.register("filetransfer", web.service.filetransfer.FileTransferService())
         app.run(host=host, port=port)
