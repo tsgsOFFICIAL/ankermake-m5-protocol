@@ -269,16 +269,18 @@ $(function () {
                 // Returns Nozzle Temp
                 const current = getTemp(data.currentTemp);
                 const target = getTemp(data.targetTemp);
+                const previousValue = $("#set-nozzle-temp").attr("value").replace("°C", "");
 
                 $("#nozzle-temp").text(`${current}°C`);
-                $("#set-nozzle-temp").attr("value", `${target}°C`);
+                $("#set-nozzle-temp").attr("value", `${isNaN(target) ? previousValue : target}°C`);
             } else if (data.commandType == 1004) {
                 // Returns Bed Temp
                 const current = getTemp(data.currentTemp);
                 const target = getTemp(data.targetTemp);
+                const previousValue = $("#set-bed-temp").attr("value").replace("°C", "");
 
                 $("#bed-temp").text(`${current}°C`);
-                $("#set-bed-temp").attr("value", `${target}°C`);
+                $("#set-bed-temp").attr("value", `${isNaN(target) ? previousValue : target}°C`);
             } else if (data.commandType == 1006) {
                 // Returns Print Speed
                 const X = getSpeedFactor(data.value);
