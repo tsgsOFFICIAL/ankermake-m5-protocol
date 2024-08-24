@@ -302,7 +302,7 @@ $(function () {
                     $("#time-remain").text(getTime(data.time));
                 }
 
-                if ($("#time-remain").text().trim() === "00:00:00" && data.totalTime !== 0) {
+                if ($("#time-elapsed").text().trim() === "00:00:00" && data.totalTime !== 0) {
                     startUpdateTimeInterval(data.totalTime, data.time);
                 } else {
                     updateTimeLeft(data.time);
